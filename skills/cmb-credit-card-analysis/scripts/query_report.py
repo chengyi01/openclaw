@@ -53,9 +53,14 @@ def fetch_bills_from_email(days=60):
         return False
 
 
-def generate_monthly_report(year, month):
+def generate_monthly_report(year, month, card_last4=None):
     """
     生成指定年月的信用卡支出报告
+    
+    Args:
+        year: 年份
+        month: 月份
+        card_last4: 卡号后4位(可选)
     """
     # 连接数据库 - 指向当前脚本目录
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -70,43 +75,32 @@ def generate_monthly_report(year, month):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    # 查询指定年月的交易记录
-    cursor.execute('''
-    SELECT t.transaction_date, t.merchant_name, t.amount, t.category, t.description
-    FROM transactions t
-    JOIN bills b ON t.bill_id = b.id
-    WHERE strftime('%Y', b.bill_date) = ? AND strftime('%m', b.bill_date) = ?
-    ORDER BY t.transaction_date ASC
-    ''', (str(year), f"{month:02d}"))
+    # 构建查询条件 - 按账单周期结束日期匹配
+    target_bill_date = f"{year}-{month:02d}-12"  # 招行账单日通常是每月12号
+    
+    # 查询指定账单周期的交易记录
+    if card_last4:
+        cursor.execute('''
+        SELECT t.transaction_date, t.merchant_name, t.amount, t.category, t.description
+        FROM transactions t
+        JOIN bills b ON t.bill_id = b.id
+        WHERE b.billing_cycle_end = ? AND b.card_last4 = ?
+        ORDER BY t.transaction_date ASC
+        ''', (target_bill_date, card_last4))
+    else:
+        cursor.execute('''
+        SELECT t.transaction_date, t.merchant_name, t.amount, t.category, t.description
+        FROM transactions t
+        JOIN bills b ON t.bill_id = b.id
+        WHERE b.billing_cycle_end = ?
+        ORDER BY t.transaction_date ASC
+        ''', (target_bill_date,))
     
     transactions = cursor.fetchall()
     
     if not transactions:
-        # 尝试另一种查询方式：直接按交易日期查询
-        cursor.execute('''
-        SELECT t.transaction_date, t.merchant_name, t.amount, t.category, t.description
-        FROM transactions t
-        WHERE strftime('%Y', '2000-' || t.transaction_date) = ? AND strftime('%m', '2000-' || t.transaction_date) = ?
-        ORDER BY t.transaction_date ASC
-        ''', (str(year), f"{month:02d}"))
-        
-        transactions = cursor.fetchall()
-        
-        if not transactions:
-            # 再尝试一种格式：MM/DD
-            cursor.execute('''
-            SELECT t.transaction_date, t.merchant_name, t.amount, t.category, t.description
-            FROM transactions t
-            WHERE substr(t.transaction_date, 1, instr(t.transaction_date, '/') - 1) = ? 
-            AND substr(t.transaction_date, instr(t.transaction_date, '/') + 1) = ?
-            ORDER BY t.transaction_date ASC
-            ''', (f"{month:02d}", str(year)[2:]))
-            
-            transactions = cursor.fetchall()
-    
-    if not transactions:
         conn.close()
-        print(f"\n⚠️  {year}年{month}月暂无消费记录")
+        print(f"\n⚠️  {year}年{month}月账期暂无消费记录" + (f" (卡号尾号:{card_last4})" if card_last4 else ""))
         print("\n尝试从邮箱获取最新账单数据...")
         
         # 尝试从邮箱获取数据
@@ -116,18 +110,27 @@ def generate_monthly_report(year, month):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            cursor.execute('''
-            SELECT t.transaction_date, t.merchant_name, t.amount, t.category, t.description
-            FROM transactions t
-            JOIN bills b ON t.bill_id = b.id
-            WHERE strftime('%Y', b.bill_date) = ? AND strftime('%m', b.bill_date) = ?
-            ORDER BY t.transaction_date ASC
-            ''', (str(year), f"{month:02d}"))
+            if card_last4:
+                cursor.execute('''
+                SELECT t.transaction_date, t.merchant_name, t.amount, t.category, t.description
+                FROM transactions t
+                JOIN bills b ON t.bill_id = b.id
+                WHERE b.billing_cycle_end = ? AND b.card_last4 = ?
+                ORDER BY t.transaction_date ASC
+                ''', (target_bill_date, card_last4))
+            else:
+                cursor.execute('''
+                SELECT t.transaction_date, t.merchant_name, t.amount, t.category, t.description
+                FROM transactions t
+                JOIN bills b ON t.bill_id = b.id
+                WHERE b.billing_cycle_end = ?
+                ORDER BY t.transaction_date ASC
+                ''', (target_bill_date,))
             
             transactions = cursor.fetchall()
             
             if not transactions:
-                print(f"❌ {year}年{month}月仍然没有找到消费记录")
+                print(f"❌ {year}年{month}月账期仍然没有找到消费记录" + (f" (卡号尾号:{card_last4})" if card_last4 else ""))
                 print("\n可能的原因:")
                 print("  1. 该月份的账单邮件尚未收到")
                 print("  2. 账单邮件在垃圾邮件箱中")
@@ -154,13 +157,22 @@ def generate_monthly_report(year, month):
         total_spending += amount
     
     # 获取账单信息（如果有）
-    cursor.execute('''
-    SELECT bill_date, due_date, total_amount, min_payment
-    FROM bills
-    WHERE strftime('%Y', bill_date) = ? AND strftime('%m', bill_date) = ?
-    ORDER BY bill_date DESC
-    LIMIT 1
-    ''', (str(year), f"{month:02d}"))
+    if card_last4:
+        cursor.execute('''
+        SELECT bill_date, due_date, total_amount, min_payment, billing_cycle_start, billing_cycle_end, card_last4
+        FROM bills
+        WHERE billing_cycle_end = ? AND card_last4 = ?
+        ORDER BY bill_date DESC
+        LIMIT 1
+        ''', (target_bill_date, card_last4))
+    else:
+        cursor.execute('''
+        SELECT bill_date, due_date, total_amount, min_payment, billing_cycle_start, billing_cycle_end, card_last4
+        FROM bills
+        WHERE billing_cycle_end = ?
+        ORDER BY bill_date DESC
+        LIMIT 1
+        ''', (target_bill_date,))
     
     bill_info = cursor.fetchone()
     
@@ -168,12 +180,15 @@ def generate_monthly_report(year, month):
     conn.close()
     
     # 生成报告
-    print(f"=== 招商银行信用卡消费报告 ({year}年{month}月) ===")
+    print(f"=== 招商银行信用卡消费报告 ({year}年{month}月账期)" + (f" - 卡号尾号:{card_last4}" if card_last4 else "") + " ===")
     print()
     
     if bill_info:
-        bill_date, due_date, total_amount, min_payment = bill_info
-        print(f"账单日期: {bill_date}")
+        bill_date, due_date, total_amount, min_payment, cycle_start, cycle_end, card_num = bill_info
+        if cycle_start and cycle_end:
+            print(f"账单周期: {cycle_start} 至 {cycle_end}")
+        if bill_date:
+            print(f"账单日期: {bill_date}")
         if due_date:
             print(f"到期还款日: {due_date}")
         if total_amount:
@@ -232,10 +247,11 @@ def main():
     parser = argparse.ArgumentParser(description='生成指定月份的招行信用卡支出报告')
     parser.add_argument('year', type=int, help='年份，例如 2026')
     parser.add_argument('month', type=int, help='月份，例如 1')
+    parser.add_argument('--card', type=str, help='卡号后4位，例如 4336', default=None)
     
     args = parser.parse_args()
     
-    generate_monthly_report(args.year, args.month)
+    generate_monthly_report(args.year, args.month, args.card)
 
 
 if __name__ == "__main__":

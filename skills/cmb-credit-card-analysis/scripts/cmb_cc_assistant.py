@@ -70,6 +70,9 @@ class CMBCCBillAssistant:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS bills (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                card_last4 TEXT,
+                billing_cycle_start TEXT,
+                billing_cycle_end TEXT,
                 bill_date TEXT,
                 due_date TEXT,
                 total_amount REAL,
@@ -214,11 +217,21 @@ class CMBCCBillAssistant:
         # 使用正则表达式提取账单信息
         bill_info = {}
         
+        # 提取卡号后4位
+        card_pattern = r'尾号[：:]?\s*([0-9]{4})|卡号[：:]?.*?([0-9]{4})'
+        card_match = re.search(card_pattern, body)
+        if card_match:
+            card_last4 = card_match.group(1) or card_match.group(2)
+            bill_info['card_last4'] = card_last4
+        
         # 首先尝试提取账单周期信息，从中获取账单日
         cycle_pattern = r'([0-9]{4}/[0-9]{2}/[0-9]{2})-([0-9]{4}/[0-9]{2}/[0-9]{2})'
         cycle_match = re.search(cycle_pattern, body)
         if cycle_match:
             start_date, end_date = cycle_match.groups()
+            # 保存账单周期的开始和结束日期
+            bill_info['billing_cycle_start'] = start_date.replace('/', '-')
+            bill_info['billing_cycle_end'] = end_date.replace('/', '-')
             # 使用结束日期作为账单日
             bill_info['bill_date'] = end_date.replace('/', '-')
         
@@ -305,8 +318,18 @@ class CMBCCBillAssistant:
                     break
         
         # 提取交易明细
-        transactions = self.extract_transactions(body)
+        transactions, card_numbers = self.extract_transactions(body)
         bill_info['transactions'] = transactions
+        
+        # 如果从账单头部没有提取到卡号,尝试从交易记录中提取
+        if 'card_last4' not in bill_info and card_numbers:
+            # 如果只有一个卡号,直接使用
+            if len(card_numbers) == 1:
+                bill_info['card_last4'] = list(card_numbers)[0]
+            else:
+                # 如果有多个卡号,记录所有卡号(这种情况较少见)
+                self.logger.warning(f"发现多个卡号: {card_numbers}")
+                bill_info['card_last4'] = ','.join(sorted(card_numbers))
         
         return bill_info
     
@@ -350,45 +373,53 @@ class CMBCCBillAssistant:
     def extract_transactions(self, body):
         """从账单文本中提取交易明细"""
         transactions = []
-        
-        # 消费记录的格式：日期  日期  商户名称  &yen;&nbsp;金额
-        # 例如：1212      1213      财付通-肯德基      &yen;&nbsp;18.50
-        transaction_pattern = r'(\d{2})(\d{2})\s+(\d{2})(\d{2})\s+([^\d\s&]{2,60}?)\s+&yen;&nbsp;([0-9,]+\.[0-9]{2})'
+        card_numbers = set()  # 用于收集所有出现的卡号后4位
+            
+        # 消费记录的格式:日期  日期  商户名称  &yen;&nbsp;金额  卡号  CN/US
+        # 例如:1212      1213      财付通-肯德基      &yen;&nbsp;18.50      4336      CN
+        transaction_pattern = r'(\d{2})(\d{2})\s+(\d{2})(\d{2})\s+([^\d\s&]{2,60}?)\s+&yen;&nbsp;([0-9,]+\.[0-9]{2})\s+(\d{4})\s+(CN|US)'
         matches = re.findall(transaction_pattern, body)
-        
+            
         for match in matches:
-            # match[0][1] = 记账日期, match[2][3] = 交易日期, match[4] = 商户名称, match[5] = 金额
+            # match[0][1] = 记账日期, match[2][3] = 交易日期, match[4] = 商户名称, match[5] = 金额, match[6] = 卡号后4位, match[7] = 交易地
             transaction_date = f"{match[2]}/{match[3]}"  # 使用交易日期
             merchant = match[4].strip()
             amount_str = re.sub(r'[¥￥$,]', '', match[5]).strip()
-            
-            # 排除非消费类项目，如积分等
+            card_last4 = match[6]
+            transaction_location = match[7]
+                
+            # 收集卡号
+            card_numbers.add(card_last4)
+                
+            # 排除非消费类项目,如积分等
             if any(keyword in merchant.lower() for keyword in ['积分', '积分值', '查询']):
                 continue
-            
+                
             # 过滤掉过于简短或不合理的商户名称
             if len(merchant) < 2 or len(merchant) > 50:
                 continue
-                
+                    
             # 过滤掉明显不合理的金额
             if not re.match(r'^[0-9,.]+$', amount_str):
                 continue
-            
+                
             try:
                 amount = float(amount_str.replace(',', ''))
                 category = self.categorize_expense(merchant)
-                
+                    
                 transactions.append({
                     'transaction_date': transaction_date,
                     'merchant_name': merchant,
                     'amount': amount,
                     'category': category,
-                    'description': f'{merchant} - ¥{amount}'
+                    'description': f'{merchant} - ¥{amount}',
+                    'card_last4': card_last4,
+                    'transaction_location': transaction_location
                 })
             except ValueError:
                 continue
-        
-        return transactions
+            
+        return transactions, card_numbers
     
     def categorize_expense(self, merchant_name):
         """对消费进行分类"""
@@ -409,9 +440,12 @@ class CMBCCBillAssistant:
         try:
             # 插入账单基本信息
             cursor.execute('''
-                INSERT INTO bills (bill_date, due_date, total_amount, min_payment)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO bills (card_last4, billing_cycle_start, billing_cycle_end, bill_date, due_date, total_amount, min_payment)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
+                bill_info.get('card_last4'),
+                bill_info.get('billing_cycle_start'),
+                bill_info.get('billing_cycle_end'),
                 bill_info.get('bill_date'),
                 bill_info.get('due_date'),
                 bill_info.get('total_amount'),
