@@ -131,11 +131,10 @@ export function renderApp(state: AppViewState) {
             <span class="nav-collapse-toggle__icon">${icons.menu}</span>
           </button>
           <div class="brand">
-            <div class="brand-logo">
-              <img src="assets/openclaw-logo-text-dark.png" alt="OpenClaw" />
-            </div>
             <div class="brand-text">
-              <div class="brand-title">OPENCLAW</div>
+              <div class="brand-title">
+                <img src="assets/openclaw-logo-text-dark.png" alt="OpenClaw" />
+              </div>
               <div class="brand-sub">Gateway Dashboard</div>
             </div>
           </div>

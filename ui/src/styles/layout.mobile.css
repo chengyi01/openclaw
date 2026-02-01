@@ -70,6 +70,11 @@
     font-size: 14px;
   }
 
+  .brand-title img {
+    height: 16px;
+    max-width: 120px;
+  }
+
   .brand-sub {
     display: none;
   }
@@ -313,6 +318,11 @@
 
   .brand-title {
     font-size: 13px;
+  }
+
+  .brand-title img {
+    height: 14px;
+    max-width: 100px;
   }
 
   .nav {

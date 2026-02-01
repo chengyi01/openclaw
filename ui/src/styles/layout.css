@@ -139,6 +139,14 @@
   color: var(--text-strong);
 }
 
+.brand-title img {
+  height: 20px;
+  width: auto;
+  max-width: 150px;
+  object-fit: contain;
+  display: block;
+}
+
 .brand-sub {
   font-size: 10px;
   font-weight: 500;
