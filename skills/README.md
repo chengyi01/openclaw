@@ -1,3 +1,22 @@
+# 保留的 Skills（9个）
+
+## 金融工具
+- **cmb-credit-card-analysis** - 招商银行信用卡分析（✓ 中国本地服务）
+
+## 开发工具
+- **coding-agent** - 代码助手（✓ 本地工具）
+- **model-usage** - 模型使用统计（✓ 本地分析）
+- **skill-creator** - Skill 创建工具（✓ 本地工具）
+
+## 笔记工具
+- **notion** - Notion API（可通过 VPN 使用）
+- **obsidian** - Obsidian 本地笔记（✓ 本地工具）
+
+## 系统工具
+- **session-logs** - 会话日志分析（✓ 本地工具）
+- **tmux** - 终端复用管理（✓ 本地工具）
+- **video-frames** - 视频帧提取（✓ 本地工具）
+
 # 已移除的 Skills
 
 ## 移除原因
@@ -57,25 +76,6 @@
 - **voice-call** - 语音通话
 - **wacli** - WhatsApp CLI（访问受限）
 - **weather** - 天气服务（可能依赖国外 API）
-
-## 保留的 Skills（9个）
-
-### 金融工具
-- **cmb-credit-card-analysis** - 招商银行信用卡分析（✓ 中国本地服务）
-
-### 开发工具
-- **coding-agent** - 代码助手（✓ 本地工具）
-- **model-usage** - 模型使用统计（✓ 本地分析）
-- **skill-creator** - Skill 创建工具（✓ 本地工具）
-
-### 笔记工具
-- **notion** - Notion API（可通过 VPN 使用）
-- **obsidian** - Obsidian 本地笔记（✓ 本地工具）
-
-### 系统工具
-- **session-logs** - 会话日志分析（✓ 本地工具）
-- **tmux** - 终端复用管理（✓ 本地工具）
-- **video-frames** - 视频帧提取（✓ 本地工具）
 
 ## 恢复方法
 
